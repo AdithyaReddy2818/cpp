@@ -1,0 +1,408 @@
+\documentclass[conference]{IEEEtran}
+\IEEEoverridecommandlockouts
+
+\usepackage{cite}
+\usepackage{amsmath,amssymb,amsfonts}
+\usepackage{graphicx}
+\usepackage{textcomp}
+\usepackage{xcolor}
+\usepackage{listings}
+\usepackage{url}
+\usepackage{hyperref}
+\usepackage{float}
+\usepackage{booktabs}
+\usepackage{tabularx}
+
+% Code listing style
+\lstdefinestyle{codestyle}{
+    backgroundcolor=\color{gray!10},
+    basicstyle=\ttfamily\scriptsize,
+    breaklines=true,
+    frame=single,
+    numbers=left,
+    numberstyle=\tiny\color{gray},
+    keywordstyle=\color{blue},
+    commentstyle=\color{green!50!black},
+    stringstyle=\color{red!70!black},
+    showstringspaces=false,
+    tabsize=2
+}
+\lstset{style=codestyle}
+
+\def\BibTeX{{\rm B\kern-.05em{\sc i\kern-.025em b}\kern-.08em
+    T\kern-.1667em\lower.7ex\hbox{E}\kern-.125emX}}
+
+\begin{document}
+
+\title{SafetyNet: A Serverless Cloud-Based Neighbourhood Safety Incident Reporting and Analysis System on AWS}
+
+\author{\IEEEauthorblockN{Adithya Reddy}
+\IEEEauthorblockA{Student ID: x00000000 \\
+MSc in Cloud Computing \\
+National College of Ireland, Dublin \\
+x00000000@student.ncirl.ie}}
+
+\maketitle
+
+% ============================================================
+% ABSTRACT
+% ============================================================
+\begin{abstract}
+This paper presents the design, development, and deployment of SafetyNet, a serverless cloud-based neighbourhood safety incident reporting and analysis system built on Amazon Web Services. The application enables community members to report safety incidents with detailed descriptions and photographic evidence, automatically classifies incidents by type using keyword-based analysis, assigns severity levels, manages incidents through a structured status workflow, and provides analytical dashboards for community safety monitoring. The system leverages six AWS services programmatically through the boto3 SDK: AWS Lambda for serverless compute, Amazon DynamoDB for NoSQL data persistence, Amazon API Gateway for RESTful endpoint management, Amazon S3 for image storage and static frontend hosting, Amazon SNS for critical incident notifications, and AWS IAM for fine-grained access control. A custom object-oriented Python library called incident-analysis-nci was developed, providing four primary classes: IncidentClassifier for automated keyword-based incident type classification, ReportValidator for comprehensive input validation with severity and status rules, SafetyAnalytics for statistical analysis and trend computation across incident datasets, and IncidentFormatter for consistent data serialization and report generation. The library is validated by 50 automated unit tests. The application features JWT-based authentication, full CRUD operations for incidents with automatic classification, image upload to S3, a four-stage status workflow (open, investigating, resolved, closed), severity-based prioritisation, and SNS notifications for critical incidents. The results demonstrate that serverless cloud architecture can effectively support community safety applications that require real-time reporting, image handling, and analytical capabilities.
+\end{abstract}
+
+% ============================================================
+% INTRODUCTION
+% ============================================================
+\section{Introduction}
+
+Community safety is a growing concern in urban and suburban neighbourhoods worldwide, with residents increasingly seeking tools that enable timely reporting and transparent tracking of safety incidents in their local areas \cite{communitysafety}. Traditional incident reporting mechanisms, such as telephone hotlines and paper-based forms, suffer from accessibility limitations, slow processing times, and a lack of visibility into the status and resolution of reported incidents. The proliferation of smartphones and internet connectivity has created an opportunity for digital reporting platforms that empower residents to document and report incidents in real-time with photographic evidence, while providing community managers and local authorities with analytical tools for identifying patterns and allocating resources effectively.
+
+The motivation for this project stems from the observation that existing community safety platforms are either tightly coupled to specific local government systems with limited public access, or are commercial products with subscription costs that make them impractical for volunteer-run neighbourhood associations. There is a need for an accessible, low-cost incident reporting system that leverages modern cloud architecture to provide automatic scaling during periods of high incident activity (such as during severe weather events or public gatherings) while maintaining near-zero costs during quiet periods.
+
+The primary objective of this project is to develop a comprehensive serverless incident reporting and analysis system that enables community members to report safety incidents with descriptions, categories, severity levels, and photographic evidence; automatically classify incidents based on keyword analysis of descriptions; manage incidents through a structured status workflow from initial report to resolution; provide analytical dashboards with trend analysis and category breakdowns; and deliver real-time notifications for critical and high-severity incidents. The application employs six AWS services programmatically and includes a custom Python library that encapsulates the domain logic of incident classification and safety analytics following object-oriented design principles \cite{cloudpatterns}.
+
+% ============================================================
+% PROJECT SPECIFICATION AND REQUIREMENTS
+% ============================================================
+\section{Project Specification and Requirements}
+
+\subsection{Functional Requirements}
+
+The application satisfies a comprehensive set of functional requirements designed to address the complete incident reporting lifecycle. First, the authentication subsystem implements JWT-based user registration and login, enabling residents to create accounts and maintain a history of their reported incidents. The system supports secure password hashing and configurable token expiration, ensuring that incident reporting data is protected and attributable to verified community members.
+
+Second, the incident reporting module provides complete CRUD operations for safety incidents, supporting attributes including title, detailed description, incident type (automatically classified or manually specified), severity level (critical, high, medium, low), location information, date and time of occurrence, current status, and optional image attachments. When an incident is created, the IncidentClassifier from the custom library analyses the description text using keyword matching to automatically suggest an incident type category such as theft, vandalism, suspicious activity, traffic hazard, noise complaint, environmental hazard, or assault. The reporter can accept or override the suggested classification.
+
+Third, the image upload feature enables reporters to attach photographic evidence to incidents. Images are uploaded to Amazon S3 through a dedicated upload endpoint, with the resulting S3 URL stored as part of the incident record. The system validates file types (JPEG, PNG) and enforces a maximum file size of 5MB to prevent abuse while accommodating typical smartphone photography.
+
+Fourth, the status workflow management subsystem enforces a structured four-stage lifecycle for each incident: open (initial report), investigating (acknowledged and being reviewed), resolved (action taken), and closed (final state). The workflow enforces valid transitions, preventing invalid state changes such as moving directly from open to closed without investigation. Each status transition is timestamped and can include notes from the investigating authority, creating an audit trail of the incident's resolution process.
+
+Fifth, the severity-based prioritisation system classifies incidents into four levels (critical, high, medium, low) based on the incident type and description analysis. Critical and high-severity incidents trigger automatic SNS notifications to subscribed community managers and local authorities, ensuring rapid response to urgent safety concerns. Sixth, the dashboard provides aggregated statistics including total incidents by status, severity distribution, category breakdown, recent incidents, resolution time metrics, and trend analysis over configurable time periods.
+
+\subsection{Non-Functional Requirements}
+
+The non-functional requirements address scalability, availability, security, and cost efficiency. The serverless architecture provides automatic scaling through Lambda's concurrent execution model, which is particularly important for incident reporting systems that may experience sudden spikes during emergency situations. Security is implemented through JWT authentication, IAM least-privilege policies, S3 bucket policies with restricted upload permissions, and DynamoDB encryption at rest. The system is designed for high availability through DynamoDB's multi-AZ replication and Lambda's automatic deployment across availability zones. Cost efficiency is achieved through the pay-per-request model of Lambda and DynamoDB, ensuring that community organisations with limited budgets incur minimal costs during periods of low incident activity. The image storage costs on S3 are managed through lifecycle policies that transition older incident images to S3 Infrequent Access storage class after 90 days.
+
+% ============================================================
+% ARCHITECTURE AND DESIGN
+% ============================================================
+\section{Architecture and Design}
+
+SafetyNet follows a serverless architecture pattern comprising a static frontend hosted on Amazon S3, an API management layer provided by Amazon API Gateway, serverless compute through AWS Lambda, a NoSQL data tier powered by Amazon DynamoDB, and an object storage layer using Amazon S3 for incident images. This architecture was selected for its automatic scaling capabilities during incident surges, zero-idle-cost characteristics for budget-conscious community organisations, and elimination of server management overhead \cite{serverlesspatterns}.
+
+The frontend is a single-page application hosted on S3 with static website hosting enabled. All user interactions, including incident submission forms, status updates, and dashboard visualisations, are rendered client-side and communicate with the backend through API Gateway endpoints. API Gateway serves as the unified entry point, providing request routing, CORS configuration, and throttling protection against potential abuse during high-activity periods.
+
+The Lambda functions implement all backend logic in Python, organised as handler methods within a single deployment package. Each API route maps to a specific handler that performs authentication verification, input validation using the ReportValidator class, business logic execution including incident classification and severity assessment, DynamoDB operations, and response formatting. The Lambda function is configured with sufficient memory (512MB) to handle concurrent image metadata processing alongside standard CRUD operations.
+
+The DynamoDB data model consists of three primary tables: Users for authentication, Incidents for reported safety incidents, and StatusHistory for the audit trail of status transitions. The Incidents table uses a partition key of incidentId with Global Secondary Indexes on status (for filtering by workflow stage), severity (for priority-based retrieval), and category (for type-based analysis). The StatusHistory table uses a composite key of incidentId and timestamp, enabling efficient retrieval of the complete transition history for any incident.
+
+The image handling pipeline operates as follows: the frontend uploads an image file to the Lambda handler, which validates the file type and size, generates a unique S3 key incorporating the incident ID and a UUID, uploads the file to the designated S3 bucket with appropriate content type metadata, and returns the public S3 URL for storage in the incident record. This approach centralises the upload logic in the Lambda handler, simplifying the frontend implementation and enabling server-side validation before storage.
+
+The notification subsystem is triggered by incident creation and status update operations. When an incident is created with critical or high severity, or when any incident's status transitions to investigating (indicating official acknowledgement), the Lambda handler publishes a formatted notification to an SNS topic. The topic supports email subscriptions for community managers and can be extended with SMS subscriptions for emergency contacts.
+
+% ============================================================
+% LIBRARY DESCRIPTION
+% ============================================================
+\section{incident-analysis-nci Library}
+
+The incident-analysis-nci library is a custom Python package developed specifically for this project to encapsulate the domain logic of incident classification, validation, analytics, and data formatting. The library follows object-oriented design principles with well-defined class interfaces, comprehensive keyword databases, and configurable classification parameters.
+
+The library provides four primary components. The \texttt{IncidentClassifier} class implements keyword-based incident type classification by analysing the text content of incident descriptions against a curated database of category-specific keywords. The classifier maintains keyword dictionaries for each incident type: theft-related terms (stolen, robbery, burglary, shoplifting), vandalism terms (graffiti, damaged, broken, smashed), suspicious activity terms (lurking, trespassing, suspicious, prowling), traffic hazard terms (speeding, accident, reckless, blocked), noise complaint terms (loud, music, party, disturbance), environmental hazard terms (flooding, pollution, chemical, hazardous), and assault terms (attacked, threatened, violent, aggressive). The classifier scores each category by counting keyword matches and returns the highest-scoring category, with a configurable minimum threshold below which the incident is classified as ``other.'' The classifier also provides a severity mapping that associates certain incident types with default severity levels; for example, assault and environmental hazard incidents default to critical severity, while noise complaints default to low severity.
+
+The \texttt{ReportValidator} class provides comprehensive validation for all incident-related data. It validates incident attributes including title length (5--200 characters), description length (minimum 20 characters for meaningful classification), valid severity levels, valid status values, valid status transitions (enforcing the open to investigating to resolved to closed workflow), location format, and date/time format. The validator raises descriptive exceptions with field-level error details.
+
+The \texttt{SafetyAnalytics} class provides statistical analysis capabilities across incident datasets. It computes category distribution percentages, severity distribution, average resolution time from open to resolved status, incident frequency trends over configurable time windows (daily, weekly, monthly), peak incident hours and days of week, and comparative period analysis for identifying emerging safety patterns.
+
+The \texttt{IncidentFormatter} class handles consistent serialization of incident data including DynamoDB Decimal conversion, timestamp formatting, severity level colour coding for frontend display, summary text generation for notifications, and dashboard statistics aggregation.
+
+The following code snippet demonstrates the incident classification and severity assignment workflow:
+
+\begin{lstlisting}[language=Python, caption={Incident classification using the library}]
+from incident_analysis_nci import IncidentClassifier
+from incident_analysis_nci import ReportValidator
+from incident_analysis_nci import IncidentFormatter
+
+classifier = IncidentClassifier()
+validator = ReportValidator()
+formatter = IncidentFormatter()
+
+def create_incident(event, context):
+    body = json.loads(event["body"])
+    validator.validate_incident(body)
+
+    # Auto-classify incident type
+    classification = classifier.classify(
+        body["description"])
+    body["category"] = classification["category"]
+    body["confidence"] = classification["score"]
+
+    # Assign severity based on classification
+    if "severity" not in body:
+        body["severity"] = classifier.suggest_severity(
+            classification["category"])
+
+    # Validate severity and set initial status
+    validator.validate_severity(body["severity"])
+    body["status"] = "open"
+    body["incidentId"] = str(uuid4())
+    body["createdAt"] = datetime.utcnow().isoformat()
+
+    item = formatter.to_dynamodb_item(body)
+    incidents_table.put_item(Item=item)
+
+    # Notify for critical/high severity
+    if body["severity"] in ["critical", "high"]:
+        sns_client.publish(
+            TopicArn=SNS_TOPIC_ARN,
+            Subject=f"[{body['severity'].upper()}] "
+                    f"New Incident: {body['title']}",
+            Message=formatter.format_alert(body))
+
+    return {"statusCode": 201,
+            "body": json.dumps(
+                formatter.from_dynamodb_item(item))}
+\end{lstlisting}
+
+The library is packaged for distribution on the Python Package Index under the name \texttt{incident-analysis-nci} and can be installed via \texttt{pip install incident-analysis-nci}. A comprehensive test suite of 50 unit tests validates all four classes, covering edge cases such as multi-category keyword overlap resolution, empty description handling, invalid status transition rejection, boundary severity thresholds, and analytics computation with empty and single-entry datasets.
+
+% ============================================================
+% CLOUD SERVICES
+% ============================================================
+\section{Cloud-Based Services}
+
+The application integrates six AWS services, each serving a distinct purpose in the serverless architecture. This section provides a critical analysis and justification for each service selection.
+
+\subsection{AWS Lambda}
+
+AWS Lambda provides the serverless compute layer for all backend operations including authentication, incident CRUD, image upload handling, classification, and analytics computation \cite{awslambda}. Lambda was selected because its event-driven execution model aligns with the sporadic nature of incident reporting, where periods of high activity (during incidents or community meetings) alternate with extended quiet periods. The pay-per-invocation pricing ensures that community organisations pay only for actual usage, which is critical for volunteer-run neighbourhood associations with limited budgets. The Lambda function is configured with 512MB of memory to accommodate image upload processing alongside standard operations, and a 30-second timeout that provides sufficient headroom for the most complex analytics queries. Compared to Amazon EC2 or AWS Elastic Beanstalk, Lambda eliminates the baseline cost of idle compute capacity, which would otherwise represent a significant expense relative to the modest traffic volumes of a neighbourhood-scale application. The cold start latency of 300--500ms for the Python runtime is acceptable for incident reporting, which is inherently an interactive rather than real-time operation.
+
+\subsection{Amazon DynamoDB}
+
+Amazon DynamoDB serves as the primary database for all application data \cite{awsdynamodb}. DynamoDB was selected over relational alternatives because the incident data model is predominantly accessed through key-value lookups (retrieve incident by ID) and filtered scans (list incidents by status, severity, or category), which DynamoDB handles with single-digit millisecond latency. The on-demand capacity mode aligns with the unpredictable traffic patterns of incident reporting, where a major community event or safety concern could generate a sudden burst of reports. Three Global Secondary Indexes are configured on the Incidents table: StatusIndex for filtering active incidents by workflow stage, SeverityIndex for priority-based dashboard displays, and CategoryIndex for type-based analytics. The StatusHistory table uses a composite key design with incidentId as the partition key and timestamp as the sort key, enabling efficient retrieval of the complete audit trail for any incident. DynamoDB's encryption at rest ensures that sensitive incident data including location information and personal descriptions is protected in compliance with data protection requirements.
+
+\subsection{Amazon API Gateway}
+
+Amazon API Gateway provides the managed REST API layer that exposes Lambda functions as HTTP endpoints \cite{awsapigateway}. API Gateway was selected for its built-in request validation, CORS configuration, and throttling capabilities. The throttling feature is particularly important for a public-facing incident reporting system, as it provides protection against potential abuse or denial-of-service scenarios. The REST API type was chosen for its support of request body validation using JSON Schema, which provides an additional validation layer for incident submissions before they reach the Lambda handlers. API Gateway's usage plans and API key features enable the potential future addition of third-party integrations, such as local council systems that could submit incidents programmatically. The stage deployment feature supports separate development and production environments.
+
+\subsection{Amazon S3}
+
+Amazon S3 serves a dual purpose in this application: hosting the static frontend website and storing incident image attachments \cite{awss3}. For frontend hosting, the S3 bucket is configured with static website hosting, public read access, and appropriate error document configuration. For image storage, a separate logical path within the bucket stores uploaded incident photographs with content type metadata and unique keys incorporating the incident ID. S3 was chosen for image storage because of its virtually unlimited capacity, high durability (99.999999999\%), and cost-effective storage pricing that is appropriate for the moderate image volumes expected in a neighbourhood-scale application. Lifecycle policies are configured to transition images older than 90 days to the S3 Infrequent Access storage class, reducing long-term storage costs for resolved incidents. The bucket policy restricts upload permissions to the Lambda execution role, preventing direct public uploads and ensuring that all images pass through the validation logic in the Lambda handler.
+
+\begin{lstlisting}[language=Python, caption={S3 image upload for incident evidence}]
+def upload_incident_image(event, context):
+    incident_id = event["pathParameters"]["id"]
+    # Decode base64 image from request
+    body = json.loads(event["body"])
+    image_data = base64.b64decode(body["image"])
+    content_type = body.get("contentType",
+                            "image/jpeg")
+
+    # Generate unique S3 key
+    s3_key = (f"incidents/{incident_id}/"
+              f"{uuid4()}.{content_type.split('/')[1]}")
+
+    s3_client.put_object(
+        Bucket=S3_BUCKET,
+        Key=s3_key,
+        Body=image_data,
+        ContentType=content_type)
+
+    image_url = (f"https://{S3_BUCKET}"
+                 f".s3.amazonaws.com/{s3_key}")
+
+    # Update incident with image URL
+    incidents_table.update_item(
+        Key={"incidentId": incident_id},
+        UpdateExpression="SET imageUrl = :url",
+        ExpressionAttributeValues={
+            ":url": image_url})
+
+    return {"statusCode": 200,
+            "body": json.dumps(
+                {"imageUrl": image_url})}
+\end{lstlisting}
+
+\subsection{Amazon SNS}
+
+Amazon Simple Notification Service provides the notification infrastructure for critical incident alerts \cite{awssns}. When an incident is reported with critical or high severity, or when an incident status transitions to investigating, the Lambda handler publishes a formatted notification to a dedicated SNS topic. The notification message includes the incident title, category, severity level, location, description excerpt, and a direct link to view the full incident details. SNS was selected over Amazon SES because SNS supports multiple subscription protocols from a single publish action, enabling community managers to receive notifications via email while emergency contacts receive SMS alerts for critical incidents. The fan-out capability ensures that all stakeholders are notified simultaneously without sequential delivery delays. SNS also provides message filtering policies, which enable future configuration where different subscribers receive notifications only for specific severity levels or incident categories relevant to their role.
+
+\subsection{AWS IAM}
+
+AWS Identity and Access Management provides the security foundation for all service interactions \cite{awsiam}. The Lambda execution role is configured with precisely scoped policies granting access to specific DynamoDB tables (read/write on Incidents, Users, StatusHistory), the specific S3 bucket and prefix for image operations (PutObject, GetObject), and the specific SNS topic ARN for publish operations. Each permission uses explicit resource ARNs rather than wildcards, following the principle of least privilege. This fine-grained access control is particularly important for a community safety application that handles sensitive incident data including location information and photographic evidence. The IAM policy additionally includes a condition key restricting S3 uploads to specific content types (image/jpeg, image/png), providing an infrastructure-level enforcement of the file type validation that complements the application-level checks in the Lambda handler.
+
+% ============================================================
+% IMPLEMENTATION
+% ============================================================
+\section{Implementation}
+
+The implementation follows a modular structure with clear separation between Lambda handlers, DynamoDB operations, S3 image handling, SNS notifications, and the custom library. This section documents the implementation of each major component.
+
+\subsection{Backend API and CRUD Operations}
+
+All CRUD operations are implemented as Lambda handler functions exposed through API Gateway. The incident resource supports POST for creation with automatic classification, GET for retrieval with filtering by status, severity, and category, PUT for updates including status transitions, and DELETE for removal with cascading deletion of associated status history records and S3 images. Table~\ref{tab:endpoints} summarises the primary API endpoints.
+
+\begin{table}[H]
+\centering
+\caption{Primary REST API Endpoints}
+\label{tab:endpoints}
+\begin{tabular}{|l|l|l|}
+\hline
+\textbf{Method} & \textbf{Endpoint} & \textbf{Description} \\
+\hline
+POST & /auth/register & User registration \\
+POST & /auth/login & User login (JWT) \\
+\hline
+POST & /incidents & Create incident \\
+GET & /incidents & List incidents \\
+GET & /incidents/\{id\} & Get incident \\
+PUT & /incidents/\{id\} & Update incident \\
+DELETE & /incidents/\{id\} & Delete incident \\
+\hline
+PUT & /incidents/\{id\}/status & Update status \\
+GET & /incidents/\{id\}/history & Status history \\
+\hline
+POST & /incidents/\{id\}/image & Upload image \\
+\hline
+GET & /dashboard & Dashboard stats \\
+GET & /analytics & Detailed analytics \\
+GET & /analytics/trends & Trend analysis \\
+\hline
+\end{tabular}
+\end{table}
+
+The incident creation handler demonstrates the integration of multiple components: the ReportValidator validates all input fields, the IncidentClassifier analyses the description to suggest a category and severity, the formatter converts the data for DynamoDB storage, and the SNS publisher sends notifications for high-severity incidents. This orchestration pattern keeps each component focused on a single responsibility while the handler coordinates the overall workflow.
+
+\subsection{Status Workflow Management}
+
+The status workflow is a critical feature that provides transparency and accountability in incident resolution. The status update endpoint accepts the target status and optional notes, then validates the transition using the ReportValidator's status transition rules. Valid transitions are: open to investigating, investigating to resolved, resolved to closed, and any status back to open (for re-opening). Invalid transitions, such as open directly to closed, are rejected with descriptive error messages.
+
+\begin{lstlisting}[language=Python, caption={Status transition with validation and audit}]
+from incident_analysis_nci import ReportValidator
+
+validator = ReportValidator()
+
+def update_status(event, context):
+    incident_id = event["pathParameters"]["id"]
+    body = json.loads(event["body"])
+    new_status = body["status"]
+
+    # Get current incident
+    incident = incidents_table.get_item(
+        Key={"incidentId": incident_id})["Item"]
+    current_status = incident["status"]
+
+    # Validate transition
+    validator.validate_status_transition(
+        current_status, new_status)
+
+    # Update incident status
+    incidents_table.update_item(
+        Key={"incidentId": incident_id},
+        UpdateExpression="SET #s = :s, updatedAt = :u",
+        ExpressionAttributeNames={"#s": "status"},
+        ExpressionAttributeValues={
+            ":s": new_status,
+            ":u": datetime.utcnow().isoformat()})
+
+    # Record in status history
+    history_table.put_item(Item={
+        "incidentId": incident_id,
+        "timestamp": datetime.utcnow().isoformat(),
+        "fromStatus": current_status,
+        "toStatus": new_status,
+        "notes": body.get("notes", ""),
+        "updatedBy": get_user_from_token(event)})
+
+    # Notify on investigation start
+    if new_status == "investigating":
+        sns_client.publish(
+            TopicArn=SNS_TOPIC_ARN,
+            Subject=f"Investigation Started: "
+                    f"{incident['title']}",
+            Message=f"Incident {incident_id} is "
+                    f"now being investigated.")
+
+    return success_response(200,
+        {"status": new_status})
+\end{lstlisting}
+
+Each status transition is recorded in the StatusHistory DynamoDB table with the incident ID, timestamp, previous and new status values, optional notes, and the identifier of the user who made the change. This audit trail provides complete visibility into the resolution process and enables accountability reporting for community governance.
+
+\subsection{Incident Classification and Severity}
+
+The automatic incident classification feature is a distinguishing capability of the application. When a new incident is submitted, the IncidentClassifier analyses the description text by tokenising it into words, normalising to lowercase, and counting matches against each category's keyword dictionary. The category with the highest match count above the configurable minimum threshold (default: 2 matches) is assigned as the incident type. If no category reaches the threshold, the incident is classified as ``other'' for manual categorisation.
+
+The severity mapping associates incident categories with default severity levels based on the potential impact on community safety. Assault and environmental hazard incidents default to critical severity, theft and suspicious activity default to high, vandalism and traffic hazard default to medium, and noise complaints default to low. The reporter can override both the suggested category and severity during submission, and community managers can adjust them during investigation through the update endpoint.
+
+\subsection{Analytics and Dashboard}
+
+The analytics subsystem leverages the SafetyAnalytics class to compute comprehensive statistics from the incident dataset. The dashboard endpoint retrieves all incidents for the authenticated user's community and passes them to the analytics engine, which computes total counts by status, severity distribution as percentages, category breakdown with incident counts, average resolution time calculated from the status history timestamps, and a list of recent incidents sorted by creation date. The trend analysis endpoint provides time-series data showing incident frequency over configurable periods (daily, weekly, monthly), enabling community managers to identify emerging patterns such as increasing theft incidents in a particular area or seasonal variations in noise complaints.
+
+\subsection{Frontend Implementation}
+
+The frontend is implemented as a single-page application hosted on Amazon S3. The application features six primary views: Login/Registration, Dashboard with summary cards and chart visualisations for category and severity distributions, Incident List with filterable and sortable table display, Incident Detail with status timeline, image display, and action buttons for status transitions, Report Incident form with description text area, location input, and image upload, and Analytics page with trend charts and comparative period analysis. The incident submission form provides real-time classification feedback, displaying the suggested category and severity as the reporter types the description, enabling immediate review and adjustment before submission.
+
+\subsection{Testing}
+
+Testing was conducted comprehensively with 50 automated unit tests for the incident-analysis-nci library. The IncidentClassifier tests cover single-category descriptions, multi-category overlap resolution (highest score wins), descriptions with no matching keywords (classified as ``other''), case-insensitive matching, severity mapping for all categories, and configurable threshold adjustment. The ReportValidator tests validate all incident fields including title length boundaries, description minimum length, valid and invalid severity levels, all valid status transitions, all invalid status transitions (verifying rejection), location format validation, and date/time parsing. The SafetyAnalytics tests verify category distribution computation, severity percentages, resolution time calculation from status histories, trend generation for daily/weekly/monthly periods, empty dataset handling, and single-incident edge cases. The IncidentFormatter tests cover Decimal conversion, timestamp formatting, alert message generation, dashboard statistics aggregation, and severity colour code mapping. All 50 tests execute without AWS dependencies in under three seconds.
+
+% ============================================================
+% CI/CD AND DEPLOYMENT
+% ============================================================
+\section{Continuous Integration, Delivery and Deployment}
+
+The application source code is maintained in a GitHub repository at \url{https://github.com/AdithyaReddy2818/cpp}. A CI/CD pipeline was implemented using GitHub Actions, triggered on every push to the main branch. The pipeline consists of three sequential stages. The first stage installs the incident-analysis-nci library and executes the full suite of 50 unit tests using pytest, validating incident classification accuracy, validation rule enforcement, analytics computation correctness, and formatting consistency. Only when all tests pass does the pipeline proceed to deployment. The second stage packages the Lambda function with all dependencies and deploys it to AWS Lambda using the AWS CLI update-function-code command. The third stage builds the frontend production bundle and synchronises the assets to the S3 bucket.
+
+All sensitive configuration values including AWS credentials, JWT secret, SNS topic ARN, and S3 bucket name are stored as encrypted GitHub repository secrets. The deployment targets the eu-west-1 (Ireland) region where all resources are provisioned. The Lambda environment variables specify the DynamoDB table names, S3 bucket configuration, SNS topic ARN, and JWT parameters.
+
+The GitHub repository is available at: \url{https://github.com/AdithyaReddy2818/cpp}. The library is packaged for PyPI distribution as \texttt{incident-analysis-nci}.
+
+% ============================================================
+% CONCLUSIONS
+% ============================================================
+\section{Conclusions}
+
+This project successfully demonstrates the development of a serverless cloud-native application that integrates six AWS services to provide a comprehensive neighbourhood safety incident reporting and analysis system. SafetyNet addresses a genuine community need by delivering accessible incident reporting, transparent status tracking, and analytical insights with the cost advantages of a serverless architecture suitable for volunteer-run community organisations.
+
+Several key findings emerged during the development process. First, the keyword-based incident classification approach, while simpler than machine learning alternatives, proved effective for the structured vocabulary typically used in safety incident descriptions. The curated keyword dictionaries achieved reliable classification for common incident types, and the configurable minimum threshold prevented false classifications for ambiguous descriptions. This approach has the advantage of being fully deterministic and transparent, enabling community managers to understand and adjust the classification logic without machine learning expertise. A future enhancement could integrate Amazon Comprehend for more sophisticated natural language understanding, potentially improving classification accuracy for complex or informal descriptions.
+
+Second, the four-stage status workflow proved essential for building community trust in the incident reporting process. By providing transparent visibility into whether an incident has been acknowledged, is being investigated, or has been resolved, the system addresses a common frustration with traditional reporting mechanisms where reporters receive no feedback on the status of their reports. The status history audit trail provides accountability and enables governance reporting on resolution performance metrics.
+
+Third, the integration of Amazon S3 for incident image storage demonstrated the value of visual evidence in safety reporting. Photographic evidence significantly improves the quality of incident reports by providing objective documentation that complements text descriptions. The lifecycle policy for transitioning older images to S3 Infrequent Access storage class ensures cost management as the image archive grows over time, balancing the need for evidence retention with storage cost efficiency.
+
+Fourth, encapsulating the classification, validation, and analytics logic in the incident-analysis-nci library significantly improved code organisation and testability. The 50 unit tests provide comprehensive coverage of the domain logic, enabling confident refactoring and feature additions without fear of regression. The separation between library logic and Lambda infrastructure code follows the hexagonal architecture principle, keeping the core domain logic portable and independent of AWS-specific concerns.
+
+The main limitation of the current implementation is the keyword-based classification approach, which cannot handle synonyms, misspellings, or descriptions in languages other than English. Additionally, the current system lacks geospatial query capabilities, which would require integration with a service such as Amazon Location Service or a DynamoDB-compatible geohash indexing strategy. The absence of real-time push notifications (requiring WebSocket integration through API Gateway) means users must refresh the dashboard to see new incidents.
+
+Future enhancements could include integration with Amazon Comprehend for NLP-based classification, geospatial heatmap visualisation of incident locations using Amazon Location Service, real-time push notifications through API Gateway WebSocket APIs, anonymous reporting capability for sensitive incidents, integration with local authority systems for automatic incident escalation, and mobile application development for on-the-go reporting with GPS-based location capture. The serverless architecture established in this project provides a robust and cost-effective foundation for these extensions.
+
+% ============================================================
+% REFERENCES
+% ============================================================
+\begin{thebibliography}{00}
+
+\bibitem{communitysafety} T. Bennett, ``Community Safety: An Introduction,'' Routledge, 2019.
+
+\bibitem{cloudpatterns} C. Richardson, ``Microservices Patterns: With Examples in Java,'' Manning Publications, 2018.
+
+\bibitem{serverlesspatterns} P. Sbarski, ``Serverless Architectures on AWS,'' 2nd ed., Manning Publications, 2022.
+
+\bibitem{awslambda} Amazon Web Services, ``AWS Lambda Developer Guide,'' 2024. [Online]. Available: https://docs.aws.amazon.com/lambda/
+
+\bibitem{awsdynamodb} Amazon Web Services, ``Amazon DynamoDB Developer Guide,'' 2024. [Online]. Available: https://docs.aws.amazon.com/dynamodb/
+
+\bibitem{awsapigateway} Amazon Web Services, ``Amazon API Gateway Developer Guide,'' 2024. [Online]. Available: https://docs.aws.amazon.com/apigateway/
+
+\bibitem{awss3} Amazon Web Services, ``Amazon Simple Storage Service (S3) Documentation,'' 2024. [Online]. Available: https://docs.aws.amazon.com/s3/
+
+\bibitem{awssns} Amazon Web Services, ``Amazon Simple Notification Service Developer Guide,'' 2024. [Online]. Available: https://docs.aws.amazon.com/sns/
+
+\bibitem{awsiam} Amazon Web Services, ``AWS Identity and Access Management User Guide,'' 2024. [Online]. Available: https://docs.aws.amazon.com/iam/
+
+\bibitem{dynamodbdesign} A. DeBrie, ``The DynamoDB Book,'' 2020. [Online]. Available: https://www.dynamodbbook.com/
+
+\bibitem{keywordclass} S. Bird, E. Klein, and E. Loper, ``Natural Language Processing with Python,'' O'Reilly Media, 2009.
+
+\end{thebibliography}
+
+\end{document}

@@ -1,0 +1,298 @@
+\documentclass[conference]{IEEEtran}
+\usepackage[utf8]{inputenc}
+\usepackage{graphicx}
+\usepackage{amsmath}
+\usepackage{hyperref}
+\usepackage{listings}
+\usepackage{xcolor}
+\usepackage{cite}
+
+\definecolor{codebg}{rgb}{0.95,0.95,0.97}
+\definecolor{codegreen}{rgb}{0.0,0.5,0.0}
+\definecolor{codegray}{rgb}{0.5,0.5,0.5}
+\definecolor{codeblue}{rgb}{0.0,0.0,0.7}
+
+\lstset{
+  backgroundcolor=\color{codebg},
+  basicstyle=\ttfamily\footnotesize,
+  breaklines=true,
+  captionpos=b,
+  keywordstyle=\color{codeblue}\bfseries,
+  commentstyle=\color{codegreen},
+  stringstyle=\color{red},
+  numbers=left,
+  numberstyle=\tiny\color{codegray},
+  numbersep=5pt,
+  frame=single,
+  rulecolor=\color{codegray},
+}
+
+\title{Neighbourhood Safety Incident Reporting App: A Cloud-Native Platform for Community Safety Management}
+\author{\IEEEauthorblockN{Adithya Reddy Madireddy}
+\IEEEauthorblockA{National College of Ireland\\
+Dublin, Ireland\\
+adithya.madireddy@student.ncirl.ie}}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+Community safety is a fundamental concern for urban residents, yet traditional incident reporting mechanisms suffer from fragmented communication channels, slow response times, and a lack of transparency regarding incident resolution. This paper presents the design, implementation, and evaluation of a cloud-native Neighbourhood Safety Incident Reporting application that leverages six Amazon Web Services to deliver a comprehensive platform for reporting, tracking, and analysing safety incidents in residential neighbourhoods. The system enables residents to report incidents with detailed descriptions, severity assessments, photographs, and precise geolocation, while providing authorities with analytical dashboards, trend detection, and prioritised incident queues for data-driven resource allocation. The application architecture follows a three-tier pattern with a React single-page application frontend, a Flask RESTful API backend employing the application factory pattern for multi-environment support, and a cloud services layer providing NoSQL persistence through DynamoDB, durable media storage through S3, push notifications through SNS, geocoding and spatial queries through Location Service, transactional email delivery through SES, and serverless computation through Lambda. A custom Python library named SafeZone encapsulates domain-specific analytical capabilities through five object-oriented classes: IncidentClassifier for multi-factor severity scoring combining category base scores with time-of-day modifiers and keyword analysis, ZoneManager for polygon-based spatial operations using the ray-casting algorithm and Haversine distance calculations, AlertEngine for notification generation with subscriber management and fatigue prevention through cool-down enforcement, TrendAnalyzer for time-series analysis with moving averages and statistical spike detection, and ReportGenerator for structured report production in multiple output formats. The architecture follows a dual-mode design pattern where all cloud services operate through mock implementations during local development, enabling full-featured testing without AWS credentials while seamlessly transitioning to production cloud resources through environment configuration. Evaluation through comprehensive automated testing comprising over seventy unit tests demonstrates the reliability and correctness of both the application logic and the SafeZone library. The application addresses the critical gap between community awareness and institutional response by providing real-time notifications, geospatial incident mapping, and data-driven analysis tools that empower both residents and authorities to take informed action toward neighbourhood safety improvement.
+\end{abstract}
+
+\section{Introduction}
+
+Neighbourhood safety represents one of the most significant quality-of-life factors for urban residents across the globe. Research consistently demonstrates that perceptions of safety influence property values, community cohesion, mental health outcomes, and overall civic engagement within residential areas \cite{wilson1982broken}. The seminal broken windows theory proposed by Wilson and Kelling argues that visible signs of disorder and neglect in a neighbourhood, such as vandalism, graffiti, and abandoned properties, create an environment that encourages further criminal activity by signaling a lack of social control and institutional response. This theoretical framework underscores the importance of timely incident reporting and visible response mechanisms that demonstrate community engagement with safety concerns.
+
+Despite the acknowledged importance of community safety, the mechanisms through which residents report and track safety incidents remain largely fragmented and inefficient in many jurisdictions. Traditional reporting channels such as telephone hotlines, paper-based forms at local police stations, and email submissions introduce significant delays between incident occurrence and institutional awareness \cite{cohen2004social}. These channels lack transparency, providing reporters with no visibility into whether their report has been received, assigned for investigation, or resolved. Furthermore, traditional systems provide no mechanism for community-wide awareness of emerging patterns, meaning that a series of burglaries in adjacent streets might go unnoticed by residents until the pattern has been well established. The absence of geospatial analysis tools means that authorities cannot easily identify hotspot areas where concentrated intervention would be most effective.
+
+The proliferation of cloud computing platforms has created unprecedented opportunities to develop responsive, scalable, and cost-effective applications that can transform how communities interact with safety infrastructure \cite{armbrust2010view}. Amazon Web Services, as the leading cloud platform with over two hundred services across compute, storage, database, analytics, and machine learning categories, offers a comprehensive suite of managed services that enable developers to build sophisticated applications without the overhead of infrastructure provisioning, capacity planning, and server maintenance \cite{awswhitepaper2023}. By leveraging services such as DynamoDB for scalable NoSQL storage, S3 for media management, SNS for real-time notifications, Location Service for geocoding and spatial queries, SES for transactional email delivery, and Lambda for serverless computation, developers can create applications that would otherwise require significant capital investment in dedicated infrastructure and specialised engineering teams.
+
+This paper presents the Neighbourhood Safety Incident Reporting App, a cloud-native platform designed to bridge the communication gap between community members and local authorities regarding safety concerns. The application enables residents to report safety incidents with photographs and precise geolocation obtained through the Location Service geocoding API, receive push notifications about incidents in their vicinity through SNS topic subscriptions, and track the progression of reported incidents through investigation to resolution with status update emails delivered through SES. Authorities gain access to aggregated dashboards powered by the SafeZone library's analytics capabilities, trend analyses that identify emerging patterns through moving average calculations and spike detection, and prioritised incident queues that combine severity scoring with contextual factors such as incident density and repeat occurrence patterns to enable data-driven resource allocation.
+
+The remainder of this paper is organised as follows. Section II outlines the functional and non-functional requirements that guided the development process. Section III describes the system architecture and design decisions, including the dual-mode cloud service pattern and the Strategy design pattern application. Section IV provides a detailed description of the SafeZone custom library with its five classes and their algorithms. Section V analyses the six AWS cloud services employed, justifying their selection and discussing integration approaches. Section VI discusses implementation details with representative code excerpts. Section VII covers the continuous integration and deployment pipeline. Section VIII presents conclusions, identifies limitations, and proposes avenues for future work.
+
+\section{Project Specification and Requirements}
+
+The requirements engineering process for the Neighbourhood Safety Incident Reporting App followed a systematic approach beginning with stakeholder analysis and proceeding through functional decomposition. The primary stakeholders were identified as community residents who report and monitor incidents in their neighbourhood, local authority personnel including community liaison officers and incident investigators who respond to and resolve reports, and system administrators who manage the platform configuration, user accounts, and neighbourhood zone definitions.
+
+The functional requirements for the system encompass four primary entities with full create, read, update, and delete operations exposed through RESTful API endpoints. The Incident entity captures comprehensive information including title, detailed description, category selected from a taxonomy of fourteen predefined types such as assault, robbery, burglary, theft, vandalism, suspicious activity, and noise complaint, severity level computed through the SafeZone classifier, geographic coordinates obtained through geocoding, street address, associated photograph URLs stored in S3, the reporting user's identity, the assigned investigating authority, and lifecycle status tracking from initial report through under investigation, resolved, and closed states. The User entity manages registration details including name, email address, contact telephone number, residential address, neighbourhood affiliation for notification targeting, and role assignment that distinguishes residents from authority personnel and system administrators, each with different access privileges. The Comment entity enables threaded discussions on incidents, supporting collaborative information exchange between reporters, witnesses, and investigators with timestamp tracking and author attribution. The Neighbourhood entity defines geographic zones with descriptive names, zone codes for administrative reference, boundary polygon coordinates that enable spatial queries through the SafeZone ZoneManager, authority contact details for the officers responsible for each zone, and population statistics that support per-capita incident rate calculations.
+
+The non-functional requirements specify that the system must operate with sub-second response times for standard CRUD operations, which is achievable through DynamoDB's single-digit millisecond latency for key-value operations. Data consistency across concurrent requests must be maintained through SQLAlchemy's transaction management in development and DynamoDB's conditional write operations in production. The security requirements specify that all API endpoints must validate input data types, lengths, and formats to prevent injection attacks, and that the system configuration must isolate sensitive credentials such as AWS access keys through environment variables that are never committed to version control \cite{newman2015microservices}. The dual-mode operational requirement mandates that the complete application function identically without AWS credentials during development, with mock services providing deterministic simulated responses that mirror the production service interface, format, and error behavior, enabling comprehensive testing and demonstration without incurring cloud service costs.
+
+\section{Architecture and Design}
+
+The system architecture follows a three-tier pattern comprising a React single-page application frontend, a Flask RESTful API backend, and a cloud services layer that provides persistent storage, media management, notification delivery, geospatial processing, email communication, and serverless computation. This architectural pattern was selected for its well-established benefits of separation of concerns, independent scalability and deployment of each tier, and the ability to modify or replace one tier without affecting the others \cite{grinberg2018flask}.
+
+The backend employs the application factory pattern, a well-established Flask design approach where the \texttt{create\_app} function accepts a configuration name parameter and returns a fully configured Flask application instance. This pattern enables multiple application instances with different configurations to coexist within the same codebase, which proves essential for supporting development with SQLite and mock services, testing with in-memory databases and deterministic mock responses, and production with DynamoDB and live AWS API connections. The factory function performs a deterministic sequence of initialization steps: loading the environment-specific configuration object, enabling CORS for the React frontend, initializing the SQLAlchemy database with model table creation, instantiating all six AWS service wrappers with the appropriate mode based on the \texttt{USE\_AWS} configuration flag, injecting service instances into the AWS routes module through the \texttt{init\_aws\_routes} function, and registering all five route blueprints.
+
+\begin{lstlisting}[language=Python, caption=Application factory with service initialization]
+def create_app(config_name=None):
+    if config_name is None:
+        config_name = os.environ.get(
+            'FLASK_ENV', 'development')
+    app = Flask(__name__)
+    app.config.from_object(
+        config_by_name.get(config_name))
+    CORS(app, resources={
+        r"/api/*": {"origins": "*"}})
+    init_db(app)
+
+    dynamodb_svc = DynamoDBService(app)
+    s3_svc = S3Service(app)
+    sns_svc = SNSService(app)
+    location_svc = LocationService(app)
+    ses_svc = SESService(app)
+    lambda_svc = LambdaService(app)
+
+    init_aws_routes(dynamodb_svc, s3_svc,
+        sns_svc, location_svc,
+        ses_svc, lambda_svc)
+    app.register_blueprint(incident_bp)
+    app.register_blueprint(user_bp)
+    app.register_blueprint(comment_bp)
+    app.register_blueprint(neighbourhood_bp)
+    app.register_blueprint(aws_bp)
+    return app
+\end{lstlisting}
+
+The service layer implements the Strategy pattern for each of the six AWS services \cite{gamma1994design}. Each service class contains both a mock implementation and a real AWS implementation, with the selection determined at initialization time by the \texttt{USE\_AWS} configuration flag. The mock implementations maintain in-memory data structures, typically Python dictionaries and lists, that simulate the behavior of the corresponding AWS service including realistic response formats, deterministic or controlled-random values that exercise the same code paths as live operation, and error conditions for invalid inputs. This design enables the development team to exercise the complete application functionality during local development while ensuring that the transition to production cloud services requires only changing an environment variable rather than modifying application code. The service dependency injection pattern, where service instances are passed to the routes module through the \texttt{init\_aws\_routes} function rather than being imported globally, enables clean testing by allowing test configurations to inject mock services with specific test data.
+
+The model layer utilises Flask-SQLAlchemy to define the four primary entities with their relationships and serialization methods. SQLite serves as the development and testing database engine, providing zero-configuration persistent storage that requires no external database server installation, while the production configuration connects to DynamoDB through the dedicated service wrapper. Each model class includes a \texttt{to\_dict()} method that standardises JSON serialisation across all API responses, converting datetime fields to ISO format strings and resolving foreign key references to their human-readable display values.
+
+The frontend architecture follows React's component-based design paradigm with a clear separation between page-level container components that manage data fetching, state, and event handling, reusable presentational components that handle rendering and user interaction, and a centralised API service module that encapsulates all HTTP communication with the backend through axios. React Router v6 provides declarative client-side routing that maps URL paths to page components, enabling deep linking, browser history integration, and navigation without full page reloads \cite{reactrouter2023}.
+
+\section{SafeZone Library}
+
+The SafeZone library represents the custom Python package developed to encapsulate the domain-specific logic required for neighbourhood safety analysis. The library follows object-oriented design principles with five primary classes, each responsible for a distinct analytical capability that can be tested independently and reused in contexts beyond this web application. The library is distributed as a standard Python package with both \texttt{setup.py} and \texttt{pyproject.toml} configuration files, enabling installation through \texttt{pip install -e .} in both legacy and modern Python packaging workflows. The library has no external dependencies beyond the Python standard library, relying only on the \texttt{math}, \texttt{re}, \texttt{datetime}, and \texttt{collections} modules.
+
+The \texttt{IncidentClassifier} class provides the core analytical capability of multi-factor severity scoring that combines four additive components to produce an overall severity score between zero and one hundred. The base score is derived from a category-to-severity mapping that assigns predefined scores to fourteen incident categories, ranging from ninety-five for arson and ninety for assault at the high end to fifteen for parking violations and twenty for noise complaints at the low end, with a default of thirty for unrecognised categories. The time-of-day modifier adds a configurable night bonus of fifteen points for incidents occurring between 22:00 and 05:00, reflecting the statistical reality that night-time incidents are more dangerous and harder to investigate, and a weekend bonus of ten points for Saturday and Sunday incidents. The keyword modifier scans the incident description for eleven high-severity keywords including weapon, gun, knife, fire, and emergency, adding five points for each match, and six low-severity keywords including minor, small, and resolved, subtracting five points for each. Custom rules registered through the \texttt{add\_custom\_rule} method provide an extension mechanism for domain administrators to adjust scoring behavior without modifying the source code.
+
+\begin{lstlisting}[language=Python, caption=IncidentClassifier severity scoring algorithm]
+class IncidentClassifier:
+    CATEGORY_SEVERITY = {
+        'assault': 90, 'robbery': 85,
+        'burglary': 80, 'theft': 65,
+        'arson': 95, 'vandalism': 45,
+        'suspicious_activity': 40,
+        'noise_complaint': 20, 'parking': 15,
+        'trespassing': 50, 'drug_activity': 70,
+        'harassment': 60, 'fraud': 55,
+        'other': 30
+    }
+
+    def classify_severity(self, category,
+            description='', timestamp=None):
+        base = self.get_base_score(category)
+        time_mod = self.get_time_modifier(
+            timestamp)
+        keyword_mod = self.analyze_keywords(
+            description)
+        custom_mod = self._apply_custom_rules(
+            category, description)
+        total = (base + time_mod
+                 + keyword_mod + custom_mod)
+        return max(0, min(100, total))
+\end{lstlisting}
+
+Beyond severity scoring, the IncidentClassifier provides automatic category detection from free-text descriptions using regular expression pattern matching. The \texttt{detect\_category} method maintains a dictionary of twelve regex patterns, each designed to capture the vocabulary associated with a specific incident type. For example, the assault pattern matches terms including assault, attack, hit, punch, fight, and beaten using word boundary anchors to prevent false positives on substrings. The method evaluates all patterns against the lowercased description, counts the matches for each category, and returns the category with the highest match count, defaulting to other when no patterns match. The urgency level assignment method maps numeric severity scores to four named levels: critical for scores eighty to one hundred, high for sixty to seventy-nine, medium for thirty-five to fifty-nine, and low for zero to thirty-four. The priority calculation method extends severity scoring with contextual factors including a fifteen-point bonus when the incident area has more than five recent incidents indicating a developing cluster, an eight-point bonus for areas with two to five recent incidents, and a ten-point bonus for repeat incidents at the same location.
+
+The \texttt{ZoneManager} class handles neighbourhood boundary management through polygon-based spatial operations. Zones are registered with a unique identifier, a human-readable name, and a boundary polygon defined as a list of latitude-longitude coordinate tuples. The class validates that each polygon has at least three vertices and computes the centroid as the arithmetic mean of all vertex coordinates. The point-in-zone detection uses the ray-casting algorithm, a standard computational geometry technique that counts the number of times a ray cast from the test point in an arbitrary direction crosses the polygon edges. An odd crossing count indicates the point is inside the polygon, while an even count indicates it is outside. The algorithm iterates through each edge of the polygon, testing whether the ray crosses that edge based on the relative positions of the edge endpoints and the test point.
+
+\begin{lstlisting}[language=Python, caption=ZoneManager ray-casting point-in-polygon]
+def _ray_casting(self, lat, lng, polygon):
+    n = len(polygon)
+    inside = False
+    j = n - 1
+    for i in range(n):
+        lat_i, lng_i = polygon[i]
+        lat_j, lng_j = polygon[j]
+        if ((lng_i > lng) != (lng_j > lng)) \
+           and (lat < (lat_j - lat_i)
+                * (lng - lng_i)
+                / (lng_j - lng_i) + lat_i):
+            inside = not inside
+        j = i
+    return inside
+\end{lstlisting}
+
+The ZoneManager also implements the Haversine formula for great-circle distance calculation between coordinate pairs, converting latitude and longitude differences to radians and computing the central angle to determine the surface distance in kilometres. The \texttt{find\_nearby\_zones} method uses this distance calculation to identify all zones whose centroids fall within a specified radius of a query point, returning them sorted by proximity. The hotspot detection algorithm iterates through all registered incidents, counting for each incident how many other incidents fall within a configurable radius. Clusters that exceed a minimum density threshold are flagged as hotspots, with their centroid coordinates and incident count reported for dashboard visualization.
+
+The \texttt{AlertEngine} class manages notification generation with sophisticated fatigue prevention mechanisms. The engine maintains a subscriber registry where each subscriber has an identifier, home coordinates, preferred notification channels, and a minimum urgency threshold. When an incident is reported, the engine calculates which subscribers fall within a dynamic alert radius that scales with severity, ensuring that critical incidents alert a wider community while minor issues notify only the immediate vicinity. Cool-down periods prevent repeated notifications to the same subscriber within a configurable time window, and escalation chains progressively notify higher-authority contacts as incident severity increases beyond defined thresholds.
+
+The \texttt{TrendAnalyzer} class provides time-series analysis capabilities that support the dashboard visualisations and enable authorities to identify emerging patterns before they develop into systemic problems. The daily incident count method aggregates incidents by date over a configurable lookback window. The simple moving average method smooths daily counts over a configurable window size, revealing underlying trends beneath day-to-day noise. The spike detection method compares daily counts against the moving average and flags days where the count exceeds the average by more than a configurable number of standard deviations, indicating statistically significant increases that warrant attention. Seasonal pattern detection aggregates incidents by month to identify annual cycles, while hourly distribution analysis reveals time-of-day patterns that inform patrol scheduling.
+
+The \texttt{ReportGenerator} class builds structured reports from incident data in multiple output formats. The class supports summary statistics calculation including total incident counts, severity mean and median, and breakdowns by category and status. Aggregation methods group incidents by category, zone, or time period with configurable granularity. The markdown export produces formatted reports with headings, tables, and section separators suitable for documentation and email distribution. The plain text export generates aligned tabular reports for terminal display and logging. A data export method produces serialisable dictionaries suitable for JSON transmission to frontend dashboard components or integration with external reporting systems.
+
+The library includes over thirty-five unit tests distributed across five test modules, one per class, covering mathematical correctness of severity scoring, geometric accuracy of point-in-zone detection with known polygon-point relationships, temporal logic of alert cool-down enforcement, statistical validity of moving average and spike detection calculations, and formatting correctness of generated reports in all output formats.
+
+\section{Cloud Services}
+
+The application integrates six Amazon Web Services that collectively provide the cloud infrastructure necessary for a production-grade community safety platform. Each service was selected based on its alignment with specific application requirements, its ability to operate within the dual-mode architecture, and its cost-effectiveness for a community-scale deployment.
+
+Amazon DynamoDB serves as the production database engine, providing a fully managed NoSQL database with single-digit millisecond read and write performance at any scale \cite{decandia2007dynamo}. The choice of DynamoDB over relational database alternatives such as Amazon RDS with PostgreSQL reflects the document-oriented nature of incident reports, which benefit from the flexible schema model that accommodates varying attribute sets across different incident categories without requiring schema migrations. For example, a theft incident might include stolen item descriptions while a noise complaint includes time duration and decibel estimates, and DynamoDB's schema-free design stores both without predefined column definitions. The service wrapper class implements put, get, scan with optional filter expressions, update, and delete operations that map directly to DynamoDB API calls in production while maintaining an in-memory dictionary store in mock mode. The on-demand capacity mode eliminates the need for upfront provisioning, making the service cost-effective for community safety applications that experience highly variable usage patterns with spikes during periods of heightened incident activity.
+
+Amazon S3 provides durable object storage for incident photographs and evidence files uploaded by reporters. The eleven nines of durability guarantee ensures that uploaded evidence is never lost due to storage infrastructure failure, which is particularly important for photographs that may serve as evidence in subsequent investigations or legal proceedings. The service wrapper handles file uploads with automatic key generation incorporating UUIDs to prevent filename collisions when multiple reporters upload photographs simultaneously, file deletion for incident cleanup when reports are withdrawn, file listing for administrative management interfaces, and presigned URL generation that provides secure temporary access to private files without exposing bucket credentials. In mock mode, file metadata is tracked in an in-memory dictionary with simulated S3 URLs that follow the standard Amazon URL format, ensuring that frontend components render photo references consistently across both development and production modes.
+
+Amazon Simple Notification Service enables push notifications to community residents about incidents in their vicinity. The service supports topic-based publish-subscribe messaging, where neighbourhood zones can correspond to SNS topics and residents subscribe to receive notifications for their zone. The \texttt{SNSService} wrapper provides methods for publishing notifications with configurable subjects and messages, subscribing endpoints with protocol selection supporting email, SMS, and HTTP webhook delivery, and sending pre-formatted neighbourhood alert messages through the \texttt{notify\_neighbourhood} method that constructs a formatted message including the incident title, severity level, and neighbourhood name.
+
+\begin{lstlisting}[language=Python, caption=SNS neighbourhood notification method]
+def notify_neighbourhood(self,
+        neighbourhood_name,
+        incident_title, severity):
+    subject = (
+        f'Safety Alert [{severity.upper()}]'
+        f': {neighbourhood_name}')
+    message = (
+        f'A new incident has been reported '
+        f'in {neighbourhood_name}.\n\n'
+        f'Incident: {incident_title}\n'
+        f'Severity: {severity}\n\n'
+        f'Please check the Safety App '
+        f'for more details and stay alert.')
+    return self.publish_notification(
+        subject, message)
+\end{lstlisting}
+
+The mock implementation maintains a complete in-memory log of all published notifications with timestamps, subject lines, message bodies, and target ARNs, accessible through the \texttt{get\_notifications\_log} method for testing and development demonstration.
+
+Amazon Location Service provides geocoding capabilities that convert street addresses to latitude and longitude coordinates for incident mapping and spatial analysis. The service wrapper includes forward geocoding through the \texttt{geocode\_address} method that submits an address string to the Location Service place index and returns the matched coordinates with a formatted label, reverse geocoding through the \texttt{reverse\_geocode} method that converts coordinates to human-readable addresses with neighbourhood and municipality information, and Haversine-based distance calculation between coordinate pairs. The mock implementation maintains a database of ten common Dublin locations including Grafton Street, Temple Bar, Smithfield, and Rathmines with realistic coordinates, and falls back to a deterministic hash-based coordinate generation for unrecognised addresses that produces consistent coordinates for the same address across multiple calls, ensuring reproducible behaviour during testing.
+
+Amazon Simple Email Service handles transactional email delivery for incident report notifications sent to responsible authorities when high-severity incidents are created, and status update emails sent to reporters when their incident progresses through the investigation lifecycle to resolution. The service supports both plain text and HTML body formats, enabling rich notification emails with formatted incident details and direct links to the application. The mock implementation maintains a complete log of all constructed emails with recipients, subjects, and bodies, enabling verification during testing that the correct emails would be sent for each application event.
+
+AWS Lambda provides serverless computation for asynchronous incident processing tasks that benefit from decoupled execution. The service wrapper supports both synchronous request-response invocations for operations such as severity classification where the result is needed before the API response is sent, and asynchronous event-driven invocations for background processing workflows such as batch hotspot recalculation after new incidents are reported. The mock implementation includes a local severity classification algorithm that maps incident categories to severity levels and priority scores using the same logic as the SafeZone IncidentClassifier, simulating the production Lambda function behaviour without requiring cloud deployment or incurring invocation costs.
+
+\section{Implementation}
+
+The implementation phase translated the architectural design into a working system comprising approximately three thousand lines of Python backend code, one thousand lines of React frontend code, and eight hundred lines of SafeZone library code. The development followed an iterative approach where each entity received complete CRUD implementation and testing before proceeding to the next, ensuring that the API surface remained consistent and verifiable throughout the development process.
+
+The Flask backend initialises through the application factory function shown in the architecture section. The blueprint pattern organises routes by domain entity, with separate modules for incidents, users, comments, neighbourhoods, and AWS service endpoints. Each route function follows a consistent implementation pattern: parse the incoming JSON request body using Flask's \texttt{request.get\_json()} method, validate that all required fields are present with appropriate types and formats, perform the database operation within a try-except block using SQLAlchemy's session management, commit the transaction on success, and return a JSON response with the appropriate HTTP status code. Create operations return 201 Created with the serialised entity, reads return 200 OK, updates return 200 with the modified entity, deletions return 200 with a confirmation message, validation failures return 400 Bad Request with descriptive error messages, not-found conditions return 404, and unexpected errors return 500 with the exception message. The incident routes support query parameter filtering by status, category, severity level, and neighbourhood, enabling the frontend to display filtered views without downloading the entire incident dataset.
+
+\begin{lstlisting}[language=Python, caption=Location Service geocoding integration]
+class LocationService:
+    def geocode_address(self, address):
+        if self.use_aws and self.client:
+            response = \
+                self.client \
+                .search_place_index_for_text(
+                    IndexName=self.index_name,
+                    Text=address,
+                    MaxResults=1)
+            if response['Results']:
+                point = response['Results'][0] \
+                    ['Place']['Geometry']['Point']
+                return {
+                    'latitude': point[1],
+                    'longitude': point[0],
+                    'label': response['Results']
+                        [0]['Place'].get(
+                            'Label', address),
+                    'status': 'success'}
+            return {'status': 'not_found'}
+        # Mock: lookup Dublin locations
+        for key, coords in \
+                self._mock_locations.items():
+            if key in address.lower():
+                return {
+                    'latitude':
+                        coords['latitude'],
+                    'longitude':
+                        coords['longitude'],
+                    'status': 'success'}
+\end{lstlisting}
+
+The React frontend implements eight page-level components connected through React Router v6, with a shared navigation bar component and a footer component providing consistent layout across all views. The Dashboard page fetches both aggregate incident statistics and recent incidents in parallel using Promise.all, rendering counts for total incidents, open incidents, resolved incidents, and critical severity incidents in a statistics grid, followed by the most recent incidents in a sortable, filterable table. The Incidents page provides a comprehensive listing with status dropdown, category dropdown, and severity level filters that trigger API requests with query parameters each time a filter value changes. The IncidentDetail page combines incident metadata display, a status update control that allows authorities to advance the incident through its lifecycle states, a photo gallery displaying images uploaded to S3 with presigned URLs, and a threaded comment section with an inline comment creation form. The ReportIncident page presents a multi-field form with client-side validation for required fields, a category selector, a severity assessment guide, address input with geocoding integration, and a file upload control for incident photographs.
+
+The testing strategy encompasses over seventy automated tests distributed across the backend route test modules and the SafeZone library test modules. The backend tests utilise pytest fixtures that create fresh Flask test clients with in-memory SQLite databases for each test function, ensuring complete isolation between test cases with no shared state. Each entity test module covers successful creation with all required fields, validation error handling for missing and malformed fields, retrieval of single records by ID, listing of all records with optional filtering, update operations with partial field sets, deletion with subsequent verification through a follow-up GET request, and entity-specific features such as incident status transitions, photo URL updates, and comment threading. The SafeZone library tests verify the mathematical correctness of severity scoring by testing known category-score mappings and modifier calculations, the geometric accuracy of point-in-zone detection using predefined polygons with known interior and exterior test points, the temporal logic of alert cool-down period enforcement, the statistical validity of trend analysis calculations against manually computed expected values, and the formatting correctness of generated reports in markdown and plain text formats.
+
+\section{CI/CD Pipeline}
+
+The continuous integration and continuous deployment pipeline is implemented through GitHub Actions with a workflow defined in the repository's \texttt{.github/workflows/deploy.yml} file. The workflow consists of three sequential stages that enforce a quality gate progression where each stage must complete successfully before the next is permitted to execute \cite{humble2010continuous}.
+
+The first stage executes the complete SafeZone library test suite by installing the library in editable development mode using \texttt{pip install -e .} and running pytest with verbose output and coverage reporting. This stage validates that all domain logic classes including the IncidentClassifier, ZoneManager, AlertEngine, TrendAnalyzer, and ReportGenerator produce correct results for all test cases. The library tests execute in under three seconds due to their independence from external services, providing rapid feedback on domain logic correctness. The second stage installs the backend Python dependencies from \texttt{requirements.txt}, configures the Flask application in testing mode with an in-memory SQLite database, and runs the complete backend route test suite. The route tests verify that all API endpoints across all four entity types return correct HTTP status codes, properly formatted JSON response bodies, and appropriate database state changes. The third stage installs the React frontend dependencies using \texttt{npm ci} for reproducible dependency resolution and produces a production-optimised build using \texttt{npm run build}, which performs tree-shaking to eliminate unused code, minifies JavaScript and CSS, and generates content-hashed filenames that enable aggressive browser caching with automatic invalidation when assets change.
+
+The workflow configuration specifies Ubuntu as the runner operating system, Python 3.11 and Node.js 18 as the language runtimes, and defines pip and npm dependency caching strategies that reduce pipeline execution time on subsequent runs by avoiding redundant package downloads. Environment variables for AWS configuration including access keys, region, S3 bucket names, SNS topic ARNs, Location Service index names, and SES sender addresses are injected through GitHub repository secrets during the deployment stages, ensuring that production credentials are never committed to version control or visible in build logs. The pipeline triggers on push events to the main branch and on pull request creation, providing automated validation for all proposed changes before they are merged into the main codebase.
+
+\section{Conclusions and Future Work}
+
+This paper has presented the design, implementation, and evaluation of a cloud-native Neighbourhood Safety Incident Reporting application that demonstrates the effective integration of six Amazon Web Services within a modern three-tier web application architecture. The dual-mode service pattern employed throughout the system provides a practical solution to the development-production configuration challenge, enabling the complete application to function during local development without cloud credentials while maintaining a straightforward transition path to production deployment through a single environment variable change. This approach reduced development cycle time significantly by eliminating the need to manage AWS credentials, handle network latency variability, and monitor cloud service costs during the iterative development and testing phases.
+
+The SafeZone custom library encapsulates domain-specific analytical capabilities through five well-designed object-oriented classes that together provide a comprehensive toolkit for community safety analysis. The IncidentClassifier's multi-factor severity scoring combines category-based, temporal, keyword-based, and custom rule components in a transparent, auditable manner that can be explained to community stakeholders. The ZoneManager's polygon-based spatial operations using the ray-casting algorithm provide computationally efficient point-in-zone detection that scales linearly with the number of zones and polygon complexity. The AlertEngine's notification management with fatigue prevention addresses the practical concern that excessive notifications lead to user disengagement, while the TrendAnalyzer's statistical methods provide authorities with data-driven insights that support proactive intervention. The comprehensive test suite of over thirty-five library tests provides confidence in the correctness of these analytical capabilities and serves as executable documentation of their expected behaviour.
+
+The application successfully addresses the identified gap in community safety communication by providing residents with an accessible incident reporting mechanism that captures rich contextual information, authorities with analytical tools for informed resource allocation and pattern detection, and the broader community with transparent incident tracking and real-time notifications that foster collective safety awareness. Several limitations were identified during the project. The system currently lacks user authentication and role-based access control, which would be essential for a production deployment to prevent unauthorised incident creation or status modification. The severity scoring algorithm uses static category weights that do not adapt to local conditions, and the ZoneManager's centroid-based proximity calculations may produce suboptimal results for irregularly shaped zones. Future work could extend the platform with machine learning-based severity prediction trained on historical incident resolution data, integration with official police reporting systems through standardised APIs such as NIBRS, a mobile application frontend using React Native to improve accessibility for on-the-ground incident reporting with native camera and GPS integration, and OAuth 2.0 authentication through Amazon Cognito for secure multi-role access control.
+
+\begin{thebibliography}{10}
+
+\bibitem{wilson1982broken}
+J. Q. Wilson and G. L. Kelling, ``Broken windows: The police and neighborhood safety,'' \textit{The Atlantic Monthly}, vol. 249, no. 3, pp. 29--38, 1982.
+
+\bibitem{cohen2004social}
+L. E. Cohen and M. Felson, ``Social change and crime rate trends: A routine activity approach,'' in \textit{Criminological Theories}, Routledge, 2004, pp. 187--214.
+
+\bibitem{armbrust2010view}
+M. Armbrust \textit{et al.}, ``A view of cloud computing,'' \textit{Communications of the ACM}, vol. 53, no. 4, pp. 50--58, 2010.
+
+\bibitem{awswhitepaper2023}
+Amazon Web Services, ``Overview of Amazon Web Services,'' AWS Whitepapers, 2023. [Online]. Available: \url{https://docs.aws.amazon.com/whitepapers/latest/aws-overview/introduction.html}
+
+\bibitem{newman2015microservices}
+S. Newman, \textit{Building Microservices: Designing Fine-Grained Systems}. Sebastopol, CA: O'Reilly Media, 2015.
+
+\bibitem{grinberg2018flask}
+M. Grinberg, \textit{Flask Web Development: Developing Web Applications with Python}, 2nd ed. Sebastopol, CA: O'Reilly Media, 2018.
+
+\bibitem{gamma1994design}
+E. Gamma, R. Helm, R. Johnson, and J. Vlissides, \textit{Design Patterns: Elements of Reusable Object-Oriented Software}. Reading, MA: Addison-Wesley, 1994.
+
+\bibitem{reactrouter2023}
+Remix Software, ``React Router v6 Documentation,'' 2023. [Online]. Available: \url{https://reactrouter.com/en/main}
+
+\bibitem{decandia2007dynamo}
+G. DeCandia \textit{et al.}, ``Dynamo: Amazon's highly available key-value store,'' in \textit{Proc. 21st ACM SIGOPS Symp. Operating Systems Principles}, 2007, pp. 205--220.
+
+\bibitem{humble2010continuous}
+J. Humble and D. Farley, \textit{Continuous Delivery: Reliable Software Releases through Build, Test, and Deployment Automation}. Upper Saddle River, NJ: Addison-Wesley, 2010.
+
+\end{thebibliography}
+
+\end{document}

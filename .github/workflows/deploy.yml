@@ -316,7 +316,8 @@ jobs:
       - name: Build frontend
         run: |
           cd frontend
-          npm install
+          rm -rf node_modules package-lock.json
+          npm install --force
           VITE_API_URL=${{ env.VITE_API_URL }} npm run build
 
       - name: Create frontend S3 bucket if not exists

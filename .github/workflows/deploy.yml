@@ -210,6 +210,7 @@ jobs:
             --resource-id $PROXY_ID \
             --http-method ANY \
             --authorization-type NONE \
+            --request-parameters "method.request.path.proxy=true" \
             --region eu-west-1 || true
 
           aws apigateway put-integration \

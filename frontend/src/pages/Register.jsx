@@ -30,7 +30,7 @@ export default function Register() {
     }
     setLoading(true);
     try {
-      const res = await registerApi({ name, email, password });
+      const res = await registerApi({ username: name, email, password });
       login(res.data.user, res.data.token);
       toast.success('Account created successfully!');
       navigate('/');

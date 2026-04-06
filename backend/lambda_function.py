@@ -13,16 +13,15 @@ from boto3.dynamodb.conditions import Attr
 # Environment variables
 DYNAMODB_TABLE = os.environ.get('DYNAMODB_TABLE', 'safetyreports-prod')
 S3_BUCKET = os.environ.get('S3_BUCKET', 'safetyreports-images-prod-adithya')
+SNS_TOPIC_ARN = os.environ.get('SNS_TOPIC_ARN', '')
 REGION = os.environ.get('REGION', 'eu-west-1')
 JWT_SECRET = os.environ.get('JWT_SECRET', 'safetyreports-secret-2026')
-EVENTBRIDGE_RULE = os.environ.get('EVENTBRIDGE_RULE', 'safetynet-daily-summary')
 
 # AWS clients
 dynamodb = boto3.resource('dynamodb', region_name=REGION)
 table = dynamodb.Table(DYNAMODB_TABLE)
 s3 = boto3.client('s3', region_name=REGION)
-rekognition = boto3.client('rekognition', region_name=REGION)
-events = boto3.client('events', region_name=REGION)
+sns = boto3.client('sns', region_name=REGION)
 
 # CORS headers applied to every response
 CORS_HEADERS = {
@@ -305,6 +304,25 @@ def handle_create_incident(body, user):
     item = {k: v for k, v in item.items() if v is not None}
     table.put_item(Item=to_dynamo(item))
 
+    # Publish SNS notification
+    try:
+        if SNS_TOPIC_ARN:
+            sns.publish(
+                TopicArn=SNS_TOPIC_ARN,
+                Subject=f'New Safety Incident: {title}',
+                Message=(
+                    f'A new incident has been reported.\n\n'
+                    f'Title: {title}\n'
+                    f'Category: {category}\n'
+                    f'Location: {item.get("location", "N/A")}\n'
+                    f'Description: {description}\n'
+                    f'Reported by: {user.get("username", "Unknown")}\n'
+                    f'Time: {now}'
+                )
+            )
+    except Exception as e:
+        print(f'SNS publish error: {e}')
+
     return response(201, {'message': 'Incident created', 'incident': from_dynamo(item)})
 
 
@@ -464,133 +482,37 @@ def handle_update_status(incident_id, body):
     return response(200, {'message': f'Status updated to {new_status}'})
 
 
-# REKOGNITION - Analyze incident image ---
+# NOTIFICATIONS (PUBLIC) ---
 
-def handle_analyze_image(incident_id):
-    """Use Rekognition to detect labels on an incident's image."""
-    result = table.get_item(Key={'id': incident_id})
-    item = result.get('Item')
-    if not item or item.get('entityType') != 'incident':
-        return response(404, {'error': 'Incident not found'})
+def handle_subscribe(body):
+    if not body or not body.get('email'):
+        return response(400, {'error': 'email is required'})
 
-    images = item.get('images', [])
-    if isinstance(images, str):
-        images = [images]
-    if not images:
-        return response(400, {'error': 'Incident has no images to analyze'})
+    if not SNS_TOPIC_ARN:
+        return response(500, {'error': 'SNS topic not configured'})
 
-    # Analyze the first image using Rekognition
     try:
-        # Extract S3 key from the image URL
-        image_url = images[0]
-        # URL format: https://{bucket}.s3.{region}.amazonaws.com/{key}
-        image_key = image_url.split('.amazonaws.com/')[1] if '.amazonaws.com/' in image_url else None
-        if not image_key:
-            return response(400, {'error': 'Cannot parse image S3 key'})
-
-        rek_result = rekognition.detect_labels(
-            Image={
-                'S3Object': {
-                    'Bucket': S3_BUCKET,
-                    'Name': image_key
-                }
-            },
-            MaxLabels=10,
-            MinConfidence=70
+        sns.subscribe(
+            TopicArn=SNS_TOPIC_ARN,
+            Protocol='email',
+            Endpoint=body['email']
         )
-
-        labels = [
-            {'name': label['Name'], 'confidence': round(label['Confidence'], 2)}
-            for label in rek_result.get('Labels', [])
-        ]
-
-        # Store labels with the incident
-        table.update_item(
-            Key={'id': incident_id},
-            UpdateExpression='SET rekognitionLabels = :labels, updatedAt = :ts',
-            ExpressionAttributeValues=to_dynamo({
-                ':labels': labels,
-                ':ts': int(time.time())
-            })
-        )
-
-        return response(200, {
-            'message': 'Image analyzed successfully',
-            'incidentId': incident_id,
-            'labels': labels
-        })
-
+        return response(200, {'message': 'Subscription requested. Check your email to confirm.'})
     except Exception as e:
-        print(f'Rekognition error: {e}')
-        return response(200, {
-            'message': 'Image analysis unavailable',
-            'incidentId': incident_id,
-            'labels': [],
-            'error': str(e)
-        })
+        print(f'SNS subscribe error: {e}')
+        return response(500, {'error': 'Failed to subscribe'})
 
 
-# EVENTBRIDGE - Daily summary ---
-
-def handle_daily_summary():
-    """Generate a summary of incidents - triggered by EventBridge or via API."""
-    result = table.scan(FilterExpression=Attr('entityType').eq('incident'))
-    items = result.get('Items', [])
-
-    total = len(items)
-    by_status = {}
-    for i in items:
-        s = i.get('status', 'unknown')
-        by_status[s] = by_status.get(s, 0) + 1
-
-    by_category = {}
-    for i in items:
-        cat = i.get('category', 'other')
-        by_category[cat] = by_category.get(cat, 0) + 1
-
-    # Incidents in the last 24 hours
-    now = int(time.time())
-    day_ago = now - 86400
-    recent = [i for i in items if i.get('createdAt', 0) >= day_ago]
-    recent = sorted(recent, key=lambda x: x.get('createdAt', 0), reverse=True)
-
-    summary = {
-        'generatedAt': now,
-        'totalIncidents': total,
-        'byStatus': by_status,
-        'byCategory': by_category,
-        'last24Hours': len(recent),
-        'recentIncidents': from_dynamo(recent[:20])
-    }
-
-    # Store the summary in DynamoDB for later retrieval
+def handle_subscribers():
+    if not SNS_TOPIC_ARN:
+        return response(200, {'count': 0})
     try:
-        summary_item = to_dynamo({
-            'id': 'daily-summary',
-            'entityType': 'summary',
-            'summary': summary,
-            'updatedAt': now
-        })
-        table.put_item(Item=summary_item)
+        result = sns.list_subscriptions_by_topic(TopicArn=SNS_TOPIC_ARN)
+        subs = [s for s in result.get('Subscriptions', []) if s.get('SubscriptionArn') != 'PendingConfirmation']
+        return response(200, {'count': len(subs)})
     except Exception as e:
-        print(f'Error storing summary: {e}')
-
-    return response(200, {'summary': summary})
-
-
-def handle_get_summary():
-    """Return the latest daily summary."""
-    # Try to get stored summary first
-    try:
-        result = table.get_item(Key={'id': 'daily-summary'})
-        item = result.get('Item')
-        if item and item.get('entityType') == 'summary':
-            return response(200, {'summary': from_dynamo(item.get('summary', {}))})
-    except Exception as e:
-        print(f'Error fetching stored summary: {e}')
-
-    # Fallback: generate fresh summary
-    return handle_daily_summary()
+        print(f'SNS list error: {e}')
+        return response(200, {'count': 0})
 
 
 # ---------------------------------------------------------------------------
@@ -598,11 +520,6 @@ def handle_get_summary():
 # ---------------------------------------------------------------------------
 
 def lambda_handler(event, context):
-    # Handle EventBridge scheduled events (daily summary trigger)
-    if event.get('source') == 'aws.events' or event.get('detail-type') == 'Scheduled Event':
-        print('EventBridge scheduled event received - generating daily summary')
-        return handle_daily_summary()
-
     http_method = event.get('httpMethod', '')
     path = event.get('path', '')
     headers = event.get('headers') or {}
@@ -622,9 +539,11 @@ def lambda_handler(event, context):
     if http_method == 'OPTIONS':
         return response(200, {'message': 'OK'})
 
-    # PUBLIC routes — before auth check
-    if path == '/incidents/summary' and http_method == 'GET':
-        return handle_get_summary()
+    # PUBLIC notification routes — before auth check
+    if path == '/subscribe' and http_method == 'POST':
+        return handle_subscribe(body)
+    if path == '/subscribers' and http_method == 'GET':
+        return handle_subscribers()
 
     # AUTH routes (no token required)
     if path == '/auth/register' and http_method == 'POST':
@@ -645,11 +564,6 @@ def lambda_handler(event, context):
         return handle_create_incident(body, user)
 
     # Routes with incident ID
-    # Match /incidents/{id}/analyze
-    if path.startswith('/incidents/') and path.endswith('/analyze') and http_method == 'POST':
-        incident_id = path.split('/')[2]
-        return handle_analyze_image(incident_id)
-
     # Match /incidents/{id}/image
     if path.startswith('/incidents/') and path.endswith('/image') and http_method == 'POST':
         incident_id = path.split('/')[2]

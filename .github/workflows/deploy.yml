@@ -110,25 +110,17 @@ jobs:
 
           aws iam attach-role-policy \
             --role-name safetyreports-lambda-role \
-            --policy-arn arn:aws:iam::aws:policy/AmazonRekognitionReadOnlyAccess || true
-
-          aws iam attach-role-policy \
-            --role-name safetyreports-lambda-role \
-            --policy-arn arn:aws:iam::aws:policy/AmazonEventBridgeFullAccess || true
+            --policy-arn arn:aws:iam::aws:policy/AmazonSNSFullAccess || true
 
           aws iam attach-role-policy \
             --role-name safetyreports-lambda-role \
             --policy-arn arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole || true
 
-      - name: Create EventBridge rule for daily summary
+      - name: Create SNS topic
         run: |
-          aws events put-rule \
-            --name safetynet-daily-summary \
-            --schedule-expression "rate(1 day)" \
-            --state ENABLED \
-            --description "Trigger daily incident summary generation" \
-            --region eu-west-1 || true
-          echo "EventBridge rule safetynet-daily-summary created"
+          SNS_TOPIC_ARN=$(aws sns create-topic --name safetyreports-notifications --region eu-west-1 --query 'TopicArn' --output text)
+          echo "SNS_TOPIC_ARN=$SNS_TOPIC_ARN" >> $GITHUB_ENV
+          echo "SNS Topic ARN: $SNS_TOPIC_ARN"
 
       - name: Wait for IAM propagation
         run: sleep 10
@@ -158,7 +150,7 @@ jobs:
               --role "$ROLE_ARN" \
               --timeout 30 \
               --memory-size 256 \
-              --environment "Variables={DYNAMODB_TABLE=safetyreports-prod,S3_BUCKET=safetyreports-images-prod-adithya,REGION=eu-west-1,JWT_SECRET=safetyreports-secret-2026,EVENTBRIDGE_RULE=safetynet-daily-summary}" \
+              --environment "Variables={DYNAMODB_TABLE=safetyreports-prod,S3_BUCKET=safetyreports-images-prod-adithya,SNS_TOPIC_ARN=${{ env.SNS_TOPIC_ARN }},REGION=eu-west-1,JWT_SECRET=safetyreports-secret-2026}" \
               --region eu-west-1
           else
             echo "Creating new Lambda function..."
@@ -170,30 +162,11 @@ jobs:
               --zip-file fileb://lambda.zip \
               --timeout 30 \
               --memory-size 256 \
-              --environment "Variables={DYNAMODB_TABLE=safetyreports-prod,S3_BUCKET=safetyreports-images-prod-adithya,REGION=eu-west-1,JWT_SECRET=safetyreports-secret-2026,EVENTBRIDGE_RULE=safetynet-daily-summary}" \
+              --environment "Variables={DYNAMODB_TABLE=safetyreports-prod,S3_BUCKET=safetyreports-images-prod-adithya,SNS_TOPIC_ARN=${{ env.SNS_TOPIC_ARN }},REGION=eu-west-1,JWT_SECRET=safetyreports-secret-2026}" \
               --region eu-west-1
 
             aws lambda wait function-active --function-name safetyreports-api --region eu-west-1
           fi
-
-      - name: Add EventBridge target to Lambda
-        run: |
-          LAMBDA_ARN=$(aws lambda get-function --function-name safetyreports-api --region eu-west-1 --query 'Configuration.FunctionArn' --output text)
-
-          # Add Lambda as target for the EventBridge rule
-          aws events put-targets \
-            --rule safetynet-daily-summary \
-            --targets "Id=safetyreports-daily-summary-target,Arn=$LAMBDA_ARN" \
-            --region eu-west-1 || true
-
-          # Grant EventBridge permission to invoke the Lambda
-          aws lambda add-permission \
-            --function-name safetyreports-api \
-            --statement-id eventbridge-daily-summary \
-            --action lambda:InvokeFunction \
-            --principal events.amazonaws.com \
-            --source-arn $(aws events describe-rule --name safetynet-daily-summary --region eu-west-1 --query 'Arn' --output text) \
-            --region eu-west-1 || true
 
       - name: Setup API Gateway
         run: |

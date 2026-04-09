@@ -520,10 +520,10 @@ def handle_subscribers():
 # ---------------------------------------------------------------------------
 
 def handle_seed():
-    """Seed demo data if the database is empty."""
-    result = table.scan(FilterExpression=Attr('entityType').eq('user'), Limit=1)
+    """Seed demo data if demo user doesn't exist yet."""
+    result = table.scan(FilterExpression=Attr('entityType').eq('user') & Attr('email').eq('demo@safetynet.demo'))
     if result.get('Items'):
-        return response(200, {'message': 'Database already has data, skipping seed'})
+        return response(200, {'message': 'Demo data already exists, skipping seed'})
 
     pw = hash_password('Demo1234!')
     demo_user_id = str(uuid.uuid4())
@@ -581,10 +581,13 @@ def lambda_handler(event, context):
     params = event.get('queryStringParameters') or {}
     path_params = event.get('pathParameters') or {}
 
-    # Parse body
+    # Parse body (handle base64-encoded bodies from API Gateway)
     body = None
     raw_body = event.get('body')
     if raw_body:
+        if event.get('isBase64Encoded'):
+            import base64
+            raw_body = base64.b64decode(raw_body).decode('utf-8')
         try:
             body = json.loads(raw_body)
         except (json.JSONDecodeError, TypeError):

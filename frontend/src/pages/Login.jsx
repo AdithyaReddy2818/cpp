@@ -91,6 +91,17 @@ export default function Login() {
             </Link>
           </p>
         </div>
+
+        <div className="mt-4 bg-white rounded-xl shadow-sm border border-gray-200 p-4">
+          <p className="text-xs font-medium text-gray-500 mb-2 text-center">Demo Credentials</p>
+          <button
+            type="button"
+            onClick={() => { setEmail('demo@safetynet.demo'); setPassword('Demo1234!'); }}
+            className="w-full text-left px-3 py-2 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-lg text-xs text-blue-800 transition-colors cursor-pointer"
+          >
+            <span className="font-semibold">Demo User:</span> demo@safetynet.demo / Demo1234!
+          </button>
+        </div>
       </div>
     </div>
   );

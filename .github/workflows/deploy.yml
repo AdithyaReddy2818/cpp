@@ -287,6 +287,11 @@ jobs:
             --region eu-west-1
 
           echo "API URL: https://$API_ID.execute-api.eu-west-1.amazonaws.com/prod"
+          echo "API_URL=https://$API_ID.execute-api.eu-west-1.amazonaws.com/prod" >> $GITHUB_ENV
+
+      - name: Seed demo data
+        run: |
+          curl -s -X POST "${{ env.API_URL }}/seed" -H "Content-Type: application/json" || echo "Seed request sent"
 
   deploy-frontend:
     runs-on: ubuntu-latest

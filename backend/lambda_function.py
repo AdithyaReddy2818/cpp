@@ -516,6 +516,61 @@ def handle_subscribers():
 
 
 # ---------------------------------------------------------------------------
+# Seed data
+# ---------------------------------------------------------------------------
+
+def handle_seed():
+    """Seed demo data if the database is empty."""
+    result = table.scan(FilterExpression=Attr('entityType').eq('user'), Limit=1)
+    if result.get('Items'):
+        return response(200, {'message': 'Database already has data, skipping seed'})
+
+    pw = hash_password('Demo1234!')
+    demo_user_id = str(uuid.uuid4())
+    table.put_item(Item=to_dynamo({
+        'id': demo_user_id, 'entityType': 'user', 'username': 'DemoUser',
+        'email': 'demo@safetynet.demo', 'passwordHash': pw['hash'],
+        'salt': pw['salt'], 'createdAt': int(time.time())
+    }))
+
+    incidents = [
+        {'title': 'Car break-in on Grafton Street', 'description': 'Window smashed and laptop stolen from parked car near the shopping centre between 2pm and 4pm.',
+         'category': 'theft', 'location': 'Grafton Street, Dublin 2', 'latitude': 53.3412, 'longitude': -6.2603, 'status': 'open', 'severity': 'high'},
+        {'title': 'Graffiti on park wall', 'description': 'Large graffiti tags spray painted on the south wall of St Stephens Green park overnight.',
+         'category': 'vandalism', 'location': 'St Stephens Green, Dublin 2', 'latitude': 53.3382, 'longitude': -6.2591, 'status': 'investigating', 'severity': 'low'},
+        {'title': 'Suspicious person near school', 'description': 'Unknown individual seen loitering near the primary school entrance during drop-off hours for three mornings.',
+         'category': 'suspicious_activity', 'location': 'Scoil Bhride, Ranelagh', 'latitude': 53.3267, 'longitude': -6.2589, 'status': 'open', 'severity': 'high'},
+        {'title': 'Loud music from apartment complex', 'description': 'Continuous loud music playing past midnight from third floor apartment. Multiple residents complained.',
+         'category': 'noise_complaint', 'location': 'Rathmines Road, Dublin 6', 'latitude': 53.3228, 'longitude': -6.2644, 'status': 'resolved', 'severity': 'medium'},
+        {'title': 'Speeding cars on residential street', 'description': 'Cars regularly exceeding speed limit on narrow residential street. Children play in the area after school.',
+         'category': 'traffic', 'location': 'Rathgar Avenue, Dublin 6', 'latitude': 53.3156, 'longitude': -6.2712, 'status': 'open', 'severity': 'medium'},
+        {'title': 'Illegal dumping in alleyway', 'description': 'Large amounts of household waste and old furniture dumped in the alley behind the shops. Attracting rats.',
+         'category': 'environmental', 'location': 'Camden Street, Dublin 2', 'latitude': 53.3335, 'longitude': -6.2655, 'status': 'investigating', 'severity': 'medium'},
+        {'title': 'Minor fire in skip bin', 'description': 'Small fire started in a construction skip bin, possibly from discarded cigarettes. Fire brigade attended.',
+         'category': 'fire', 'location': 'Harcourt Street, Dublin 2', 'latitude': 53.3348, 'longitude': -6.2625, 'status': 'resolved', 'severity': 'high'},
+        {'title': 'Bike stolen from rack outside library', 'description': 'Locked bicycle taken from the bike rack outside the public library between 10am and 1pm.',
+         'category': 'theft', 'location': 'Pearse Street Library, Dublin 2', 'latitude': 53.3440, 'longitude': -6.2498, 'status': 'open', 'severity': 'low'},
+    ]
+
+    now = int(time.time())
+    for i, inc in enumerate(incidents):
+        table.put_item(Item=to_dynamo({
+            'id': str(uuid.uuid4()), 'entityType': 'incident',
+            'title': inc['title'], 'description': inc['description'],
+            'category': inc['category'], 'location': inc.get('location', ''),
+            'latitude': inc.get('latitude'), 'longitude': inc.get('longitude'),
+            'status': inc['status'], 'severity': inc.get('severity', 'medium'),
+            'reportedBy': demo_user_id, 'reportedByUsername': 'DemoUser',
+            'imageUrl': '', 'createdAt': now - (i * 86400), 'updatedAt': now - (i * 86400),
+        }))
+
+    return response(200, {
+        'message': f'Seeded 1 demo user and {len(incidents)} incidents',
+        'demoCredentials': {'email': 'demo@safetynet.demo', 'password': 'Demo1234!'}
+    })
+
+
+# ---------------------------------------------------------------------------
 # Main handler
 # ---------------------------------------------------------------------------
 
@@ -544,6 +599,10 @@ def lambda_handler(event, context):
         return handle_subscribe(body)
     if path == '/subscribers' and http_method == 'GET':
         return handle_subscribers()
+
+    # SEED route (public, idempotent)
+    if path == '/seed' and http_method == 'POST':
+        return handle_seed()
 
     # AUTH routes (no token required)
     if path == '/auth/register' and http_method == 'POST':

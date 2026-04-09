@@ -90,3 +90,4 @@ Push to the `main` branch to trigger automatic deployment via GitHub Actions. En
 | API Gateway    | `safetyreports-api`                   |
 | SNS Topic      | `safetyreports-notifications`         |
 | IAM Role       | `safetyreports-lambda-role`           |
+

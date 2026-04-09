@@ -8,9 +8,11 @@ import {
   Loader2,
   Trash2,
   Save,
+  Pencil,
+  X,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
-import { getIncident, updateStatus, deleteIncident } from '../api';
+import { getIncident, updateIncident, updateStatus, deleteIncident } from '../api';
 
 const severityStyles = {
   critical: 'bg-red-100 text-red-700',
@@ -39,6 +41,9 @@ export default function IncidentDetail() {
   const [updating, setUpdating] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [editForm, setEditForm] = useState({ title: '', description: '', category: '', location: '' });
+  const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     fetchIncident();
@@ -51,6 +56,12 @@ export default function IncidentDetail() {
       setIncident(data);
       setNewStatus(data.status || 'open');
       setAdminNotes(data.admin_notes || data.adminNotes || '');
+      setEditForm({
+        title: data.title || '',
+        description: data.description || '',
+        category: data.category || '',
+        location: data.location || '',
+      });
     } catch (err) {
       setError(err.response?.data?.message || 'Failed to load incident');
     } finally {
@@ -83,6 +94,29 @@ export default function IncidentDetail() {
       setDeleting(false);
       setShowDeleteConfirm(false);
     }
+  };
+
+  const handleEditSave = async () => {
+    setSaving(true);
+    try {
+      await updateIncident(id, editForm);
+      toast.success('Incident updated successfully');
+      setEditing(false);
+      fetchIncident();
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to update incident');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const formatDate = (value) => {
+    if (!value) return 'Unknown';
+    // If it looks like a unix timestamp in seconds (less than 10 billion), multiply by 1000
+    const ts = typeof value === 'number' && value < 1e12 ? value * 1000 : value;
+    const d = new Date(ts);
+    if (isNaN(d.getTime())) return 'Unknown';
+    return d.toLocaleString();
   };
 
   const formatCategory = (cat) => {
@@ -123,6 +157,69 @@ export default function IncidentDetail() {
       </Link>
 
       <div className="bg-white rounded-xl border border-gray-200 p-6 mb-6">
+        {editing ? (
+          <div className="space-y-4 mb-6">
+            <div className="flex items-center justify-between mb-2">
+              <h2 className="text-lg font-semibold text-gray-800">Edit Incident</h2>
+              <button
+                onClick={() => setEditing(false)}
+                className="flex items-center gap-1 text-sm text-gray-500 hover:text-gray-700 transition-colors"
+              >
+                <X className="w-4 h-4" /> Cancel
+              </button>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Title</label>
+              <input
+                type="text"
+                value={editForm.title}
+                onChange={(e) => setEditForm({ ...editForm, title: e.target.value })}
+                className="w-full px-4 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Description</label>
+              <textarea
+                value={editForm.description}
+                onChange={(e) => setEditForm({ ...editForm, description: e.target.value })}
+                rows={4}
+                className="w-full px-4 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none"
+              />
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Category</label>
+                <select
+                  value={editForm.category}
+                  onChange={(e) => setEditForm({ ...editForm, category: e.target.value })}
+                  className="w-full px-4 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent appearance-none bg-white"
+                >
+                  {['theft', 'vandalism', 'assault', 'suspicious_activity', 'noise_complaint', 'traffic', 'fire', 'environmental', 'other'].map((c) => (
+                    <option key={c} value={c}>{formatCategory(c)}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Location</label>
+                <input
+                  type="text"
+                  value={editForm.location}
+                  onChange={(e) => setEditForm({ ...editForm, location: e.target.value })}
+                  className="w-full px-4 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                />
+              </div>
+            </div>
+            <button
+              onClick={handleEditSave}
+              disabled={saving}
+              className="flex items-center gap-2 bg-blue-600 text-white px-5 py-2.5 rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-50 transition-colors"
+            >
+              {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+              {saving ? 'Saving...' : 'Save Changes'}
+            </button>
+          </div>
+        ) : (
+        <>
         <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4 mb-6">
           <div>
             <h1 className="text-2xl font-bold text-gray-800 mb-2">{incident.title}</h1>
@@ -146,6 +243,12 @@ export default function IncidentDetail() {
               </span>
             </div>
           </div>
+          <button
+            onClick={() => setEditing(true)}
+            className="flex items-center gap-2 border border-gray-200 text-gray-600 px-4 py-2 rounded-lg text-sm font-medium hover:bg-gray-50 transition-colors"
+          >
+            <Pencil className="w-4 h-4" /> Edit
+          </button>
         </div>
 
         <div className="prose prose-sm max-w-none mb-6">
@@ -159,12 +262,12 @@ export default function IncidentDetail() {
           </div>
           <div className="flex items-center gap-2 text-sm text-gray-500">
             <User className="w-4 h-4 text-gray-400" />
-            <span>{incident.reporter_name || incident.reporterName || 'Anonymous'}</span>
+            <span>{incident.reportedByUsername || incident.reporter_name || incident.reporterName || 'Anonymous'}</span>
           </div>
           <div className="flex items-center gap-2 text-sm text-gray-500">
             <Calendar className="w-4 h-4 text-gray-400" />
             <span>
-              {new Date(incident.created_at || incident.createdAt).toLocaleString()}
+              {formatDate(incident.created_at || incident.createdAt)}
             </span>
           </div>
         </div>
@@ -184,6 +287,8 @@ export default function IncidentDetail() {
               className="max-w-md rounded-lg border border-gray-200"
             />
           </div>
+        )}
+        </>
         )}
       </div>
 

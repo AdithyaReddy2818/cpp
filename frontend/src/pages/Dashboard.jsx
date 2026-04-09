@@ -181,7 +181,7 @@ export default function Dashboard() {
                   <p className="text-sm font-medium text-gray-800 truncate">{incident.title}</p>
                   <p className="text-xs text-gray-500 mt-0.5">
                     {incident.location} &middot;{' '}
-                    {new Date(incident.created_at || incident.createdAt).toLocaleDateString()}
+                    {(() => { const v = incident.created_at || incident.createdAt; const ts = typeof v === 'number' && v < 1e12 ? v * 1000 : v; return new Date(ts).toLocaleDateString(); })()}
                   </p>
                 </div>
                 <div className="flex items-center gap-2 ml-4">

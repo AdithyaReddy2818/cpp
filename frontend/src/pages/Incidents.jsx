@@ -188,7 +188,7 @@ export default function Incidents() {
                 </span>
                 <span className="flex items-center gap-1">
                   <Calendar className="w-3 h-3" />
-                  {new Date(incident.created_at || incident.createdAt).toLocaleDateString()}
+                  {(() => { const v = incident.created_at || incident.createdAt; const ts = typeof v === 'number' && v < 1e12 ? v * 1000 : v; return new Date(ts).toLocaleDateString(); })()}
                 </span>
               </div>
             </Link>
